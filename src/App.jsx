@@ -74,13 +74,13 @@ export default function App() {
             <button
               key={k}
               onClick={() => setTab(k)}
-              className={clsBtn(tab === k ? "bg-slate-900 text-white" : "bg-white")}
+              className={tab === k ? "btn btn-primary" : "btn"}
             >
               {l}
             </button>
           ))}
         </nav>
-        <button className={clsBtn("bg-white")} onClick={() => supabase.auth.signOut()}>
+        <button className="btn" onClick={() => supabase.auth.signOut()}>
           Вийти
         </button>
       </header>
@@ -117,12 +117,7 @@ export default function App() {
                   (r) => (
                     <>
                       <PersonModal initial={r} onSave={savePerson} clients={clients} />
-                      <button
-                        className={clsBtn("ml-2")}
-                        onClick={() => delPerson(r.person_id)}
-                      >
-                        🗑
-                      </button>
+                      <button className="btn ml-2" onClick={() => delPerson(r.person_id)}>🗑</button>
                     </>
                   ),
                 ],
@@ -164,12 +159,7 @@ export default function App() {
                   (r) => (
                     <>
                       <PersonModal initial={r} onSave={savePerson} clients={clients} />
-                      <button
-                        className={clsBtn("ml-2")}
-                        onClick={() => delPerson(r.person_id)}
-                      >
-                        🗑
-                      </button>
+                      <button className="btn ml-2" onClick={() => delPerson(r.person_id)}>🗑</button>
                     </>
                   ),
                 ],
@@ -191,12 +181,7 @@ export default function App() {
                   (r) => (
                     <>
                       <ClientModal initial={r} onSave={saveClient} />
-                      <button
-                        className={clsBtn("ml-2")}
-                        onClick={() => delClient(r.client_id)}
-                      >
-                        🗑
-                      </button>
+                      <button className="btn ml-2" onClick={() => delClient(r.client_id)}>🗑</button>
                     </>
                   ),
                 ],
@@ -221,12 +206,7 @@ export default function App() {
                   (r) => (
                     <>
                       <ProjectModal initial={r} onSave={saveProject} clients={clients} />
-                      <button
-                        className={clsBtn("ml-2")}
-                        onClick={() => delProject(r.project_id)}
-                      >
-                        🗑
-                      </button>
+                      <button className="btn ml-2" onClick={() => delProject(r.project_id)}>🗑</button>
                     </>
                   ),
                 ],
@@ -252,12 +232,7 @@ export default function App() {
                   (r) => (
                     <>
                       <VacancyModal initial={r} onSave={saveVacancy} clients={clients} />
-                      <button
-                        className={clsBtn("ml-2")}
-                        onClick={() => delVacancy(r.vacancy_id)}
-                      >
-                        🗑
-                      </button>
+                      <button className="btn ml-2" onClick={() => delVacancy(r.vacancy_id)}>🗑</button>
                     </>
                   ),
                 ],
@@ -301,12 +276,7 @@ export default function App() {
                         clients={clients}
                         projects={projects}
                       />
-                      <button
-                        className={clsBtn("ml-2")}
-                        onClick={() => delAssign(r.assignment_id)}
-                      >
-                        🗑
-                      </button>
+                      <button className="btn ml-2" onClick={() => delAssign(r.assignment_id)}>🗑</button>
                     </>
                   ),
                 ],
@@ -339,12 +309,7 @@ export default function App() {
                         people={people}
                         clients={clients}
                       />
-                      <button
-                        className={clsBtn("ml-2")}
-                        onClick={() => delAttend(r.id)}
-                      >
-                        🗑
-                      </button>
+                      <button className="btn ml-2" onClick={() => delAttend(r.id)}>🗑</button>
                     </>
                   ),
                 ],
@@ -421,7 +386,7 @@ function Modal({ title, onClose, children }) {
       <div className="bg-white rounded-2xl border shadow p-4 w-full max-w-xl">
         <div className="flex justify-between items-center mb-3">
           <div className="font-semibold">{title}</div>
-          <button onClick={onClose}>✖</button>
+          <button className="btn" onClick={onClose}>✖</button>
         </div>
         {children}
       </div>
@@ -455,7 +420,7 @@ function ClientModal({ initial, onSave }) {
   return (
     <>
       <button
-        className={clsBtn()}
+        className="btn"
         onClick={() => {
           setF(initial || { client_id: "", company: "", location: "", note: "" });
           setErr("");
@@ -475,9 +440,7 @@ function ClientModal({ initial, onSave }) {
             {err && <div className="text-red-600 text-sm">{err}</div>}
           </div>
           <div className="mt-3 flex justify-end">
-            <button className={clsBtn("bg-blue-600 text-white")} onClick={save}>
-              Зберегти
-            </button>
+            <button className="btn btn-primary" onClick={save}>Зберегти</button>
           </div>
         </Modal>
       )}
@@ -491,7 +454,7 @@ function ProjectModal({ initial, onSave, clients }) {
   return (
     <>
       <button
-        className={clsBtn()}
+        className="btn"
         onClick={() => {
           setF(initial || { project_id: "", name: "", client_id: clients[0]?.client_id || "", note: "" });
           setOpen(true);
@@ -512,7 +475,7 @@ function ProjectModal({ initial, onSave, clients }) {
           <textarea className={clsInp} placeholder="Нотатка" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
           <div className="mt-3 flex justify-end">
             <button
-              className={clsBtn("bg-indigo-600 text-white")}
+              className="btn btn-primary"
               onClick={() => {
                 if (!f.project_id) f.project_id = uid("PR");
                 onSave(f);
@@ -548,7 +511,7 @@ function PersonModal({ initial, onSave, clients = [] }) {
   return (
     <>
       <button
-        className={clsBtn()}
+        className="btn"
         onClick={() => {
           setF(
             initial || {
@@ -603,7 +566,7 @@ function PersonModal({ initial, onSave, clients = [] }) {
 
           <div className="mt-3 flex justify-end">
             <button
-              className={clsBtn("bg-blue-600 text-white")}
+              className="btn btn-primary"
               onClick={() => {
                 const payload = { ...f, target_client_id: f.target_client_id || null };
                 if (!payload.person_id) payload.person_id = uid("P");
@@ -628,7 +591,7 @@ function VacancyModal({ initial, onSave, clients }) {
   return (
     <>
       <button
-        className={clsBtn()}
+        className="btn"
         onClick={() => {
           setF(initial || { vacancy_id: "", client_id: clients[0]?.client_id || "", position: "", rate: 0, status: "Відкрита" });
           setOpen(true);
@@ -653,7 +616,7 @@ function VacancyModal({ initial, onSave, clients }) {
           </select>
           <div className="mt-3 flex justify-end">
             <button
-              className={clsBtn("bg-emerald-600 text-white")}
+              className="btn btn-primary"
               onClick={() => {
                 if (!f.vacancy_id) f.vacancy_id = uid("V");
                 onSave(f);
@@ -688,7 +651,7 @@ function AssignmentModal({ initial, onSave, people, clients, projects }) {
   return (
     <>
       <button
-        className={clsBtn()}
+        className="btn"
         onClick={() => {
           setF(
             initial || {
@@ -748,7 +711,7 @@ function AssignmentModal({ initial, onSave, people, clients, projects }) {
           </select>
           <div className="mt-3 flex justify-end">
             <button
-              className={clsBtn("bg-blue-600 text-white")}
+              className="btn btn-primary"
               onClick={() => {
                 if (!f.assignment_id) f.assignment_id = uid("A");
                 onSave(f);
@@ -780,7 +743,7 @@ function AttendanceModal({ initial, onSave, people, clients }) {
   return (
     <>
       <button
-        className={clsBtn()}
+        className="btn"
         onClick={() => {
           setF(
             initial || {
@@ -820,7 +783,7 @@ function AttendanceModal({ initial, onSave, people, clients }) {
           <input className={clsInp} placeholder="Статус" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} />
           <div className="mt-3 flex justify-end">
             <button
-              className={clsBtn("bg-blue-600 text-white")}
+              className="btn btn-primary"
               onClick={() => {
                 if (!f.id) f.id = uid("T");
                 onSave(f);
@@ -857,4 +820,3 @@ function Logo() {
     </div>
   );
 }
-

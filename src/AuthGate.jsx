@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "./lib/supabase";
+import { supabase } from "./lib/supabase"; // лишається як було у тебе
 
 export default function AuthGate({ children }) {
   const [session, setSession] = useState(null);
@@ -24,7 +24,7 @@ export default function AuthGate({ children }) {
 
   return (
     <div className="min-h-screen grid place-items-center bg-slate-50">
-      <div className="bg-white border rounded-2xl p-6 w-full max-w-sm">
+      <div className="bg-white border rounded-2xl p-6 w-full max-w-sm shadow-sm">
         <h1 className="font-bold text-lg mb-3">Увійти</h1>
         <input
           className="w-full border rounded-xl px-3 py-2 mb-2"
@@ -33,7 +33,7 @@ export default function AuthGate({ children }) {
           value={email}
           onChange={(e)=>setEmail(e.target.value)}
         />
-        <button className="px-3 py-2 rounded-xl border bg-slate-900 text-white w-full" onClick={signIn}>
+        <button className="btn btn-primary w-full" onClick={signIn}>
           Надіслати магічне посилання
         </button>
       </div>

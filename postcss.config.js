@@ -1,6 +1,7 @@
+/** @type {import('postcss-load-config').Config} */
 export default {
   plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
-};
+    '@tailwindcss/postcss': {},   // <- НОВИЙ плагін для Tailwind v4
+    autoprefixer: {}
+  }
+}

@@ -1,7 +1,6 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@plugin "daisyui";
 
-/* Необов'язково: трошки типографіки */
-html,body,#root{height:100%}
-body{ @apply bg-slate-50 text-slate-800; }
+/* опціонально – легкий базовий фон і згладжування */
+:root { color-scheme: light; }
+body { background: #f8fafc; color: #0f172a; -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
