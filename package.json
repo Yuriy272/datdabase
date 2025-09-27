@@ -1,6 +1,11 @@
-"scripts": {
-  "dev": "vite",
-  "build": "node node_modules/vite/bin/vite.js build",
-  "preview": "vite preview --port 4173"
+{
+  "name": "cec-app",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node node_modules/vite/bin/vite.js build",
+    "preview": "vite preview --port 4173"
+  }
 }
-
