@@ -1,164 +1,921 @@
-// src/App.jsx
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "./lib/supabase";
+import { useClients } from "./hooks/useClients";
+import { useProjects } from "./hooks/useProjects";
+import { usePeople } from "./hooks/usePeople";
+import { useVacancies } from "./hooks/useVacancies";
+import { useAssignments } from "./hooks/useAssignments";
+import { useAttendance } from "./hooks/useAttendance";
 
-// ====== НАЛАШТУВАННЯ (під свої назви полів/таблиць) ========================
-// Таблиця з кодами доступу. Поля: code (text), is_active (bool), expires_at (timestamptz)
-const ACCESS_CODES_TABLE = "access_codes"; // змінити, якщо в тебе інша назва
-// Ключ у localStorage, де триматимемо локальну “сесію”
-const CODE_SESSION_KEY = "codeAuth";
-// ===========================================================================
+/* =========================
+   Access Code Gate (без e-mail)
+   ========================= */
+function AuthGate({ children }) {
+  const [allowed, setAllowed] = useState(false);
+  const [checking, setChecking] = useState(true);
+  const [code, setCode] = useState("");
 
-export default function App() {
-  const [isReady, setReady] = useState(false);
-  const [isAuthed, setAuthed] = useState(false);
+  // Можна вказати кілька кодів через кому: "123456,654321"
+  const raw = import.meta.env.VITE_ACCESS_CODE || "";
+  const validCodes = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
 
   useEffect(() => {
-    // Перевіряємо, чи вже є локальна сесія (користувач раніше увійшов кодом)
-    const ok = localStorage.getItem(CODE_SESSION_KEY) === "1";
-    setAuthed(ok);
-    setReady(true);
+    const ok = localStorage.getItem("cec_access_granted") === "1";
+    setAllowed(ok);
+    setChecking(false);
   }, []);
 
-  if (!isReady) return null;
-
-  return isAuthed ? (
-    <AppShell onSignOut={() => signOut(setAuthed)} />
-  ) : (
-    <CodeLogin onSuccess={() => setAuthed(true)} />
-  );
-}
-
-// -------------------------- Вхід по коду -----------------------------------
-function CodeLogin({ onSuccess }) {
-  const [code, setCode] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [msg, setMsg] = useState("");
-
-  const disabled = useMemo(() => loading || !code.trim(), [loading, code]);
-
-  const handleLogin = async (e) => {
+  const handleLogin = (e) => {
     e.preventDefault();
-    setLoading(true);
-    setMsg("");
+    const input = code.trim();
+    if (!input) return;
 
-    try {
-      // 1) Знаходимо код у таблиці
-      const { data, error } = await supabase
-        .from(ACCESS_CODES_TABLE)
-        .select("code,is_active,expires_at")
-        .eq("code", code.trim())
-        .maybeSingle();
+    const ok =
+      validCodes.length > 0 ? validCodes.includes(input) : input === "123456";
 
-      if (error) throw error;
-
-      if (!data) {
-        setMsg("Код не знайдено. Перевір правильність.");
-        return;
-      }
-
-      // 2) Перевіряємо активність та строк дії
-      const isActive = !!data.is_active;
-      const isExpired =
-        data.expires_at && new Date(data.expires_at).getTime() < Date.now();
-
-      if (!isActive) {
-        setMsg("Код не активний.");
-        return;
-      }
-      if (isExpired) {
-        setMsg("Строк дії коду вичерпано.");
-        return;
-      }
-
-      // 3) Успіх → вмикаємо локальну "сесію"
-      localStorage.setItem(CODE_SESSION_KEY, "1");
-      onSuccess?.();
-    } catch (err) {
-      console.error(err);
-      setMsg("Сталася помилка. Спробуй ще раз.");
-    } finally {
-      setLoading(false);
+    if (ok) {
+      localStorage.setItem("cec_access_granted", "1");
+      setAllowed(true);
+    } else {
+      alert("Невірний код доступу.");
     }
   };
 
-  return (
-    <div className="min-h-screen grid place-items-center bg-gray-50">
-      <form
-        onSubmit={handleLogin}
-        className="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-sm"
-      >
-        <h1 className="mb-4 text-xl font-semibold">Увійти</h1>
+  if (checking) return null;
 
-        <label className="mb-2 block text-sm text-gray-600">Код доступу</label>
-        <input
-          className="mb-3 w-full rounded-lg border border-gray-300 px-3 py-2 outline-none focus:border-indigo-500"
-          placeholder="Введи свій код (напр. 123456)"
-          value={code}
-          onChange={(e) => setCode(e.target.value)}
-        />
+  if (!allowed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-100">
+        <div className="w-full max-w-md rounded-xl bg-white shadow p-6 space-y-4">
+          <h1 className="text-xl font-semibold">Увійти</h1>
+          <form onSubmit={handleLogin} className="space-y-3">
+            <input
+              type="text"
+              inputMode="numeric"
+              placeholder="Код доступу"
+              className="w-full border rounded-xl px-3 py-2 outline-none focus:ring"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+            />
+            <button
+              type="submit"
+              className="w-full rounded bg-blue-600 text-white py-2 hover:bg-blue-700"
+            >
+              Підтвердити
+            </button>
+          </form>
+          <p className="text-xs text-gray-500">
+            Код задається у змінній середовища <b>VITE_ACCESS_CODE</b>.
+            Можна вказати кілька через кому: <code>123456,654321</code>.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
-        {msg && (
-          <div className="mb-3 rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">
-            {msg}
-          </div>
-        )}
-
-        <button
-          type="submit"
-          disabled={disabled}
-          className="w-full rounded-lg bg-indigo-600 px-4 py-2 font-medium text-white disabled:opacity-60"
-        >
-          {loading ? "Перевіряю…" : "Увійти кодом"}
-        </button>
-
-        <p className="mt-3 text-center text-xs text-gray-500">
-          Email / magic-link вимкнено. Вхід тільки за кодом.
-        </p>
-      </form>
-    </div>
-  );
+  return <>{children}</>;
 }
 
-// -------------------------- Основний додаток -------------------------------
-function AppShell({ onSignOut }) {
+/* =========================
+   Helpers та UI
+   ========================= */
+const clsBtn = (s = "") => `px-3 py-2 rounded-xl border ${s}`;
+const clsInp = "w-full border rounded-xl px-3 py-2";
+const uid = (p) => p + Math.random().toString(36).slice(2, 8);
+
+/* =========================
+   Твій початковий додаток (без змін)
+   ========================= */
+function AppShell() {
+  const [tab, setTab] = useState("dashboard");
+
+  const { rows: clients, upsert: saveClient, remove: delClient } = useClients();
+  const { rows: projects, upsert: saveProject, remove: delProject } = useProjects();
+  const { rows: people, upsert: savePerson, remove: delPerson } = usePeople();
+  const { rows: vacancies, upsert: saveVacancy, remove: delVacancy } = useVacancies();
+  const { rows: assignments, upsert: saveAssign, remove: delAssign } = useAssignments();
+  const { rows: attendance, upsert: saveAttend, remove: delAttend } = useAttendance();
+
+  const today = new Date().toISOString().slice(0, 10);
+  const active = assignments.filter(
+    (a) =>
+      a.status === "Активний" &&
+      (!a.start || a.start <= today) &&
+      (!a.end || a.end >= today)
+  );
+  const activePersonIds = new Set(active.map((a) => a.person_id));
+
+  const clientsById = useMemo(
+    () => Object.fromEntries(clients.map((c) => [c.client_id, c])),
+    [clients]
+  );
+  const peopleById = useMemo(
+    () => Object.fromEntries(people.map((p) => [p.person_id, p])),
+    [people]
+  );
+  const projectsById = useMemo(
+    () => Object.fromEntries(projects.map((p) => [p.project_id, p])),
+    [projects]
+  );
+
+  // Відпрацьовані дні з attendance (рахуємо "Явка"/"present" як день)
+  const workedDays = useMemo(() => {
+    const m = {};
+    attendance.forEach((a) => {
+      const s = (a.status || "").toLowerCase();
+      if (s.includes("яв") || s.includes("present") || s === "") {
+        m[a.person_id] = (m[a.person_id] || 0) + 1;
+      }
+    });
+    return m;
+  }, [attendance]);
+
+  const fullSignOut = async () => {
+    // на всякий випадок — вийти з supabase (хоч у нас анонімний ключ)
+    try {
+      await supabase.auth.signOut();
+    } catch {}
+    // і головне — прибрати access flag для code-gate
+    localStorage.removeItem("cec_access_granted");
+    window.location.reload();
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900">
-      {/* Шапка */}
-      <header className="sticky top-0 z-10 border-b bg-white/80 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <div className="text-sm font-semibold">
-            Czech Employment Connection
-          </div>
-          <button
-            onClick={onSignOut}
-            className="rounded-lg border bg-white px-3 py-1.5 text-sm hover:bg-gray-50"
-            title="Вихід"
-          >
-            Вийти
-          </button>
-        </div>
+    <div className="min-h-screen bg-slate-50 text-slate-800">
+      <header className="px-4 py-3 bg-white border-b sticky top-0 flex items-center justify-between">
+        <Logo />
+        <nav className="flex gap-1 flex-wrap">
+          {[
+            ["dashboard", "Дашборд"],
+            ["leads", "Ліди"],
+            ["people", "Люди"],
+            ["clients", "Клієнти"],
+            ["projects", "Проєкти"],
+            ["vacancies", "Вакансії"],
+            ["assignments", "Призначення"],
+            ["attendance", "Відвідуваність"],
+          ].map(([k, l]) => (
+            <button
+              key={k}
+              onClick={() => setTab(k)}
+              className={tab === k ? "btn btn-primary" : "btn"}
+            >
+              {l}
+            </button>
+          ))}
+        </nav>
+        <button className="btn" onClick={fullSignOut}>
+          Вийти
+        </button>
       </header>
 
-      {/* Контент (тут лишив дуже просту заглушку; твій поточний інтерфейс можна залишити як є) */}
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <h1 className="mb-4 text-2xl font-bold">Дашборд</h1>
-        <p className="text-sm text-gray-600">
-          Ти увійшов за кодом. Тут продовжує працювати весь твій інтерфейс
-          (ліди, люди, клієнти, вакансії, призначення, відвідуваність тощо).
-        </p>
+      <main className="p-4 max-w-7xl mx-auto space-y-8">
+        {tab === "dashboard" && (
+          <Card title="Дашборд">
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <KPI label="Усього людей" value={people.length} />
+              <KPI label="Працює зараз" value={activePersonIds.size} />
+              <KPI label="Клієнтів" value={clients.length} />
+              <KPI
+                label="Вакансій відкрито"
+                value={vacancies.filter((v) => v.status === "Відкрита").length}
+              />
+            </div>
+          </Card>
+        )}
 
-        {/* TODO: встав свій існуючий контент / компоненти */}
+        {tab === "leads" && (
+          <Card
+            title="Ліди"
+            action={<PersonModal onSave={savePerson} clients={clients} />}
+          >
+            <Table
+              columns={[
+                ["ПІБ", (r) => r.name],
+                ["Телефон", (r) => r.phone || "—"],
+                ["Рекрутер", (r) => r.recruiter || "—"],
+                ["Статус", (r) => r.status],
+                ["Цільовий клієнт", (r) => clientsById[r.target_client_id]?.company || "—"],
+                [
+                  "Дії",
+                  (r) => (
+                    <>
+                      <PersonModal initial={r} onSave={savePerson} clients={clients} />
+                      <button className="btn ml-2" onClick={() => delPerson(r.person_id)}>🗑</button>
+                    </>
+                  ),
+                ],
+              ]}
+              rows={people.filter((p) => (p.status || "lead") === "lead")}
+            />
+          </Card>
+        )}
+
+        {tab === "people" && (
+          <Card
+            title="Люди"
+            action={<PersonModal onSave={savePerson} clients={clients} />}
+          >
+            <Table
+              rowClass={(r) => (activePersonIds.has(r.person_id) ? "bg-emerald-50" : "")}
+              columns={[
+                [
+                  "ПІБ",
+                  (r) => (
+                    <span className="flex items-center gap-2">
+                      {r.name}
+                      {activePersonIds.has(r.person_id) && (
+                        <span className="text-xs bg-emerald-200 text-emerald-800 rounded-full px-2">
+                          працює
+                        </span>
+                      )}
+                    </span>
+                  ),
+                ],
+                ["Телефон", (r) => r.phone || "—"],
+                ["Місто", (r) => r.city || "—"],
+                ["Рекрутер", (r) => r.recruiter || "—"],
+                ["Статус", (r) => r.status],
+                ["Цільовий клієнт", (r) => clientsById[r.target_client_id]?.company || "—"],
+                ["Днів", (r) => workedDays[r.person_id] || 0],
+                [
+                  "Дії",
+                  (r) => (
+                    <>
+                      <PersonModal initial={r} onSave={savePerson} clients={clients} />
+                      <button className="btn ml-2" onClick={() => delPerson(r.person_id)}>🗑</button>
+                    </>
+                  ),
+                ],
+              ]}
+              rows={people}
+            />
+          </Card>
+        )}
+
+        {tab === "clients" && (
+          <Card title="Клієнти" action={<ClientModal onSave={saveClient} />}>
+            <Table
+              columns={[
+                ["Компанія", (r) => r.company],
+                ["Локація", (r) => r.location || "—"],
+                ["Нотатка", (r) => r.note || "—"],
+                [
+                  "Дії",
+                  (r) => (
+                    <>
+                      <ClientModal initial={r} onSave={saveClient} />
+                      <button className="btn ml-2" onClick={() => delClient(r.client_id)}>🗑</button>
+                    </>
+                  ),
+                ],
+              ]}
+              rows={clients}
+            />
+          </Card>
+        )}
+
+        {tab === "projects" && (
+          <Card
+            title="Проєкти"
+            action={<ProjectModal onSave={saveProject} clients={clients} />}
+          >
+            <Table
+              columns={[
+                ["Назва", (r) => r.name],
+                ["Клієнт", (r) => clientsById[r.client_id]?.company || "—"],
+                ["Нотатка", (r) => r.note || "—"],
+                [
+                  "Дії",
+                  (r) => (
+                    <>
+                      <ProjectModal initial={r} onSave={saveProject} clients={clients} />
+                      <button className="btn ml-2" onClick={() => delProject(r.project_id)}>🗑</button>
+                    </>
+                  ),
+                ],
+              ]}
+              rows={projects}
+            />
+          </Card>
+        )}
+
+        {tab === "vacancies" && (
+          <Card
+            title="Вакансії"
+            action={<VacancyModal onSave={saveVacancy} clients={clients} />}
+          >
+            <Table
+              columns={[
+                ["Компанія", (r) => clientsById[r.client_id]?.company || "—"],
+                ["Позиція", (r) => r.position],
+                ["Ставка", (r) => r.rate],
+                ["Статус", (r) => r.status],
+                [
+                  "Дії",
+                  (r) => (
+                    <>
+                      <VacancyModal initial={r} onSave={saveVacancy} clients={clients} />
+                      <button className="btn ml-2" onClick={() => delVacancy(r.vacancy_id)}>🗑</button>
+                    </>
+                  ),
+                ],
+              ]}
+              rows={vacancies}
+            />
+          </Card>
+        )}
+
+        {tab === "assignments" && (
+          <Card
+            title="Призначення"
+            action={
+              <AssignmentModal
+                onSave={saveAssign}
+                people={people}
+                clients={clients}
+                projects={projects}
+              />
+            }
+          >
+            <Table
+              columns={[
+                ["Кандидат", (r) => peopleById[r.person_id]?.name || "—"],
+                ["Клієнт", (r) => clientsById[r.client_id]?.company || "—"],
+                ["Проєкт", (r) => projectsById[r.project_id]?.name || "—"],
+                ["Позиція", (r) => r.position || "—"],
+                ["Договір", (r) => r.contract_type || "—"],
+                ["Ставка", (r) => r.rate || "—"],
+                ["Початок", (r) => r.start || "—"],
+                ["Кінець", (r) => r.end || "—"],
+                ["Статус", (r) => r.status],
+                [
+                  "Дії",
+                  (r) => (
+                    <>
+                      <AssignmentModal
+                        initial={r}
+                        onSave={saveAssign}
+                        people={people}
+                        clients={clients}
+                        projects={projects}
+                      />
+                      <button className="btn ml-2" onClick={() => delAssign(r.assignment_id)}>🗑</button>
+                    </>
+                  ),
+                ],
+              ]}
+              rows={assignments}
+            />
+          </Card>
+        )}
+
+        {tab === "attendance" && (
+          <Card
+            title="Відвідуваність"
+            action={<AttendanceModal onSave={saveAttend} people={people} clients={clients} />}
+          >
+            <Table
+              columns={[
+                ["Дата", (r) => r.date],
+                ["Кандидат", (r) => peopleById[r.person_id]?.name || "—"],
+                ["Клієнт", (r) => clientsById[r.client_id]?.company || "—"],
+                ["Зміна", (r) => r.shift || "—"],
+                ["Години", (r) => r.hours || 0],
+                ["Статус", (r) => r.status || "—"],
+                [
+                  "Дії",
+                  (r) => (
+                    <>
+                      <AttendanceModal
+                        initial={r}
+                        onSave={saveAttend}
+                        people={people}
+                        clients={clients}
+                      />
+                      <button className="btn ml-2" onClick={() => delAttend(r.id)}>🗑</button>
+                    </>
+                  ),
+                ],
+              ]}
+              rows={attendance}
+            />
+          </Card>
+        )}
       </main>
     </div>
   );
 }
 
-// --------------------------- Вихід -----------------------------------------
-function signOut(setAuthed) {
-  try {
-    localStorage.removeItem(CODE_SESSION_KEY);
-  } finally {
-    setAuthed(false);
-  }
+/* ===== UI building blocks ===== */
+function Card({ title, action, children }) {
+  return (
+    <div className="bg-white border rounded-2xl p-4 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="font-semibold">{title}</h2>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
 }
+function Table({ columns, rows, rowClass }) {
+  return (
+    <div className="overflow-x-auto border rounded-xl">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-100">
+          <tr>
+            {columns.map(([h], i) => (
+              <th key={i} className="text-left p-2">
+                {h}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={columns.length} className="p-3 text-center text-slate-500">
+                Немає даних
+              </td>
+            </tr>
+          )}
+          {rows.map((r, i) => (
+            <tr key={i} className={`border-t ${rowClass ? rowClass(r) : ""}`}>
+              {columns.map(([_, cell], j) => (
+                <td key={j} className="p-2">
+                  {cell(r)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+function KPI({ label, value }) {
+  return (
+    <div className="bg-white border rounded-2xl p-4 text-center">
+      <div className="text-2xl font-bold">{value}</div>
+      <div className="text-slate-600 text-sm">{label}</div>
+    </div>
+  );
+}
+
+/* ===== Modals (forms) ===== */
+function Modal({ title, onClose, children }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-3">
+      <div className="bg-white rounded-2xl border shadow p-4 w-full max-w-xl">
+        <div className="flex justify-between items-center mb-3">
+          <div className="font-semibold">{title}</div>
+          <button className="btn" onClick={onClose}>✖</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ClientModal({ initial, onSave }) {
+  const [open, setOpen] = useState(false);
+  const [err, setErr] = useState("");
+  const [f, setF] = useState(initial || { client_id: "", company: "", location: "", note: "" });
+
+  function save() {
+    const payload = {
+      ...f,
+      client_id: (f.client_id || "").trim(),
+      company: (f.company || "").trim(),
+      location: (f.location || "").trim(),
+      note: (f.note || "").trim(),
+    };
+    if (!payload.company) {
+      setErr("Вкажи назву компанії/заводу.");
+      return;
+    }
+    if (!payload.client_id) payload.client_id = uid("C");
+    setErr("");
+    onSave(payload);
+    setOpen(false);
+  }
+
+  return (
+    <>
+      <button
+        className="btn"
+        onClick={() => {
+          setF(initial || { client_id: "", company: "", location: "", note: "" });
+          setErr("");
+          setOpen(true);
+        }}
+      >
+        {initial ? "✏️ Ред." : "➕ Додати"}
+      </button>
+
+      {open && (
+        <Modal title={initial ? "Клієнт / Завод" : "Новий клієнт / завод"} onClose={() => setOpen(false)}>
+          <div className="grid gap-2">
+            <input className={clsInp} placeholder="ID (необов'язково)" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} />
+            <input className={clsInp} placeholder="Компанія / Завод *" value={f.company} onChange={(e) => setF({ ...f, company: e.target.value })} />
+            <input className={clsInp} placeholder="Локація (місто)" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} />
+            <textarea className={clsInp} placeholder="Нотатка" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+            {err && <div className="text-red-600 text-sm">{err}</div>}
+          </div>
+          <div className="mt-3 flex justify-end">
+            <button className="btn btn-primary" onClick={save}>Зберегти</button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function ProjectModal({ initial, onSave, clients }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(initial || { project_id: "", name: "", client_id: clients[0]?.client_id || "", note: "" });
+  return (
+    <>
+      <button
+        className="btn"
+        onClick={() => {
+          setF(initial || { project_id: "", name: "", client_id: clients[0]?.client_id || "", note: "" });
+          setOpen(true);
+        }}
+      >
+        {initial ? "✏️ Ред." : "➕ Додати"}
+      </button>
+      {open && (
+        <Modal title={initial ? "Проєкт" : "Новий проєкт"} onClose={() => setOpen(false)}>
+          <input className={clsInp + " mb-2"} placeholder="Назва" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+          <select className={clsInp + " mb-2"} value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
+            {clients.map((c) => (
+              <option key={c.client_id} value={c.client_id}>
+                {c.company}
+              </option>
+            ))}
+          </select>
+          <textarea className={clsInp} placeholder="Нотатка" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+          <div className="mt-3 flex justify-end">
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                if (!f.project_id) f.project_id = uid("PR");
+                onSave(f);
+                setOpen(false);
+              }}
+            >
+              Зберегти
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function PersonModal({ initial, onSave, clients = [] }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(
+    initial || {
+      person_id: "",
+      name: "",
+      phone: "",
+      city: "",
+      citizenship: "",
+      doc: "",
+      recruiter: "",
+      birth_date: "",
+      status: "lead",
+      target_client_id: null,
+    }
+  );
+
+  return (
+    <>
+      <button
+        className="btn"
+        onClick={() => {
+          setF(
+            initial || {
+              person_id: "",
+              name: "",
+              phone: "",
+              city: "",
+              citizenship: "",
+              doc: "",
+              recruiter: "",
+              birth_date: "",
+              status: "lead",
+              target_client_id: null,
+            }
+          );
+          setOpen(true);
+        }}
+      >
+        {initial ? "✏️ Ред." : "➕ Додати"}
+      </button>
+
+      {open && (
+        <Modal title={initial ? "Людина" : "Нова людина"} onClose={() => setOpen(false)}>
+          <div className="grid sm:grid-cols-2 gap-2">
+            <input className={clsInp} placeholder="ID (P1…)" value={f.person_id} onChange={(e) => setF({ ...f, person_id: e.target.value })} />
+            <input className={clsInp} placeholder="ПІБ" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+            <input className={clsInp} placeholder="Телефон" value={f.phone || ""} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+            <input className={clsInp} placeholder="Місто" value={f.city || ""} onChange={(e) => setF({ ...f, city: e.target.value })} />
+            <input className={clsInp} placeholder="Громадянство" value={f.citizenship || ""} onChange={(e) => setF({ ...f, citizenship: e.target.value })} />
+            <input className={clsInp} placeholder="Документ" value={f.doc || ""} onChange={(e) => setF({ ...f, doc: e.target.value })} />
+            <input className={clsInp} placeholder="Рекрутер" value={f.recruiter || ""} onChange={(e) => setF({ ...f, recruiter: e.target.value })} />
+            <input type="date" className={clsInp} value={f.birth_date || ""} onChange={(e) => setF({ ...f, birth_date: e.target.value })} />
+
+            <select
+              className={clsInp + " col-span-2"}
+              value={f.target_client_id ?? ""}
+              onChange={(e) =>
+                setF({
+                  ...f,
+                  target_client_id: e.target.value === "" ? null : e.target.value,
+                })
+              }
+            >
+              <option value="">— без цільового клієнта —</option>
+              {clients.map((c) => (
+                <option key={c.client_id} value={c.client_id}>
+                  {c.company}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="mt-3 flex justify-end">
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                const payload = { ...f, target_client_id: f.target_client_id || null };
+                if (!payload.person_id) payload.person_id = uid("P");
+                onSave(payload);
+                setOpen(false);
+              }}
+            >
+              Зберегти
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function VacancyModal({ initial, onSave, clients }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(
+    initial || { vacancy_id: "", client_id: clients[0]?.client_id || "", position: "", rate: 0, status: "Відкрита" }
+  );
+  return (
+    <>
+      <button
+        className="btn"
+        onClick={() => {
+          setF(initial || { vacancy_id: "", client_id: clients[0]?.client_id || "", position: "", rate: 0, status: "Відкрита" });
+          setOpen(true);
+        }}
+      >
+        {initial ? "✏️ Ред." : "➕ Додати"}
+      </button>
+      {open && (
+        <Modal title={initial ? "Вакансія" : "Нова вакансія"} onClose={() => setOpen(false)}>
+          <select className={clsInp + " mb-2"} value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
+            {clients.map((c) => (
+              <option key={c.client_id} value={c.client_id}>
+                {c.company}
+              </option>
+            ))}
+          </select>
+          <input className={clsInp + " mb-2"} placeholder="Позиція" value={f.position} onChange={(e) => setF({ ...f, position: e.target.value })} />
+          <input type="number" className={clsInp + " mb-2"} placeholder="Ставка" value={f.rate} onChange={(e) => setF({ ...f, rate: Number(e.target.value) })} />
+          <select className={clsInp} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+            <option>Відкрита</option>
+            <option>Закрита</option>
+          </select>
+          <div className="mt-3 flex justify-end">
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                if (!f.vacancy_id) f.vacancy_id = uid("V");
+                onSave(f);
+                setOpen(false);
+              }}
+            >
+              Зберегти
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function AssignmentModal({ initial, onSave, people, clients, projects }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(
+    initial || {
+      assignment_id: "",
+      person_id: people[0]?.person_id || "",
+      client_id: clients[0]?.client_id || "",
+      project_id: "",
+      position: "",
+      contract_type: "DPČ",
+      rate: 0,
+      status: "Активний",
+      start: new Date().toISOString().slice(0, 10),
+      end: "",
+    }
+  );
+  return (
+    <>
+      <button
+        className="btn"
+        onClick={() => {
+          setF(
+            initial || {
+              assignment_id: "",
+              person_id: people[0]?.person_id || "",
+              client_id: clients[0]?.client_id || "",
+              project_id: "",
+              position: "",
+              contract_type: "DPČ",
+              rate: 0,
+              status: "Активний",
+              start: new Date().toISOString().slice(0, 10),
+              end: "",
+            }
+          );
+          setOpen(true);
+        }}
+      >
+        {initial ? "✏️ Ред." : "➕ Додати"}
+      </button>
+      {open && (
+        <Modal title={initial ? "Призначення" : "Нове призначення"} onClose={() => setOpen(false)}>
+          <select className={clsInp + " mb-2"} value={f.person_id} onChange={(e) => setF({ ...f, person_id: e.target.value })}>
+            {people.map((p) => (
+              <option key={p.person_id} value={p.person_id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <select className={clsInp + " mb-2"} value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
+            {clients.map((c) => (
+              <option key={c.client_id} value={c.client_id}>
+                {c.company}
+              </option>
+            ))}
+          </select>
+          <select className={clsInp + " mb-2"} value={f.project_id} onChange={(e) => setF({ ...f, project_id: e.target.value })}>
+            <option value="">—</option>
+            {projects
+              .filter((p) => p.client_id === f.client_id)
+              .map((p) => (
+                <option key={p.project_id} value={p.project_id}>
+                  {p.name}
+                </option>
+              ))}
+          </select>
+          <input className={clsInp + " mb-2"} placeholder="Позиція" value={f.position || ""} onChange={(e) => setF({ ...f, position: e.target.value })} />
+          <input className={clsInp + " mb-2"} placeholder="Договір" value={f.contract_type || ""} onChange={(e) => setF({ ...f, contract_type: e.target.value })} />
+          <input type="number" className={clsInp + " mb-2"} placeholder="Ставка" value={f.rate || 0} onChange={(e) => setF({ ...f, rate: Number(e.target.value) })} />
+          <div className="grid grid-cols-2 gap-2">
+            <input type="date" className={clsInp} value={f.start || ""} onChange={(e) => setF({ ...f, start: e.target.value })} />
+            <input type="date" className={clsInp} value={f.end || ""} onChange={(e) => setF({ ...f, end: e.target.value })} />
+          </div>
+          <select className={clsInp + " mt-2"} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+            <option>Активний</option>
+            <option>Завершено</option>
+          </select>
+          <div className="mt-3 flex justify-end">
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                if (!f.assignment_id) f.assignment_id = uid("A");
+                onSave(f);
+                setOpen(false);
+              }}
+            >
+              Зберегти
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+function AttendanceModal({ initial, onSave, people, clients }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState(
+    initial || {
+      id: "",
+      date: new Date().toISOString().slice(0, 10),
+      person_id: people[0]?.person_id || "",
+      client_id: clients[0]?.client_id || "",
+      shift: "День",
+      hours: 12,
+      status: "Явка",
+    }
+  );
+  return (
+    <>
+      <button
+        className="btn"
+        onClick={() => {
+          setF(
+            initial || {
+              id: "",
+              date: new Date().toISOString().slice(0, 10),
+              person_id: people[0]?.person_id || "",
+              client_id: clients[0]?.client_id || "",
+              shift: "День",
+              hours: 12,
+              status: "Явка",
+            }
+          );
+          setOpen(true);
+        }}
+      >
+        {initial ? "✏️ Ред." : "➕ Додати"}
+      </button>
+      {open && (
+        <Modal title={initial ? "Відвідуваність" : "Запис відвідуваності"} onClose={() => setOpen(false)}>
+          <input type="date" className={clsInp + " mb-2"} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
+          <select className={clsInp + " mb-2"} value={f.person_id} onChange={(e) => setF({ ...f, person_id: e.target.value })}>
+            {people.map((p) => (
+              <option key={p.person_id} value={p.person_id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <select className={clsInp + " mb-2"} value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
+            {clients.map((c) => (
+              <option key={c.client_id} value={c.client_id}>
+                {c.company}
+              </option>
+            ))}
+          </select>
+          <input className={clsInp + " mb-2"} placeholder="Зміна (День/Ніч)" value={f.shift} onChange={(e) => setF({ ...f, shift: e.target.value })} />
+          <input type="number" className={clsInp + " mb-2"} placeholder="Години" value={f.hours} onChange={(e) => setF({ ...f, hours: Number(e.target.value) })} />
+          <input className={clsInp} placeholder="Статус" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} />
+          <div className="mt-3 flex justify-end">
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                if (!f.id) f.id = uid("T");
+                onSave(f);
+                setOpen(false);
+              }}
+            >
+              Зберегти
+            </button>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+/* ===== Logo ===== */
+function Logo() {
+  return (
+    <div className="flex items-center gap-2">
+      <svg viewBox="0 0 64 64" width="28" height="28">
+        <defs>
+          <linearGradient id="flagGrad" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#d7141a" />
+            <stop offset="50%" stopColor="#11457e" />
+            <stop offset="100%" stopColor="#ffd700" />
+          </linearGradient>
+        </defs>
+        <path
+          d="M32 4l8 16 18 2-12 12 3 18-17-9-17 9 3-18-12-12 18-2z"
+          fill="url(#flagGrad)"
+        />
+      </svg>
+      <span className="font-bold">Czech Employment Connection</span>
+    </div>
+  );
+}
+
+/* =========================
+   Експорт із код-gate
+   ========================= */
+export default function App() {
+  return (
+    <AuthGate>
+      <AppShell />
+    </AuthGate>
+  );
+}
+
