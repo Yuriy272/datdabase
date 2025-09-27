@@ -1,14 +1,11 @@
+// src/main.jsx
 import React from "react";
-import { createRoot } from "react-dom/client";
+import ReactDOM from "react-dom/client";
 import App from "./App.jsx";
-import AuthGate from "./AuthGate.jsx";
+import "./index.css";
 
-import "./index.css"; // важливо: підключаємо Tailwind+DaisyUI
-
-createRoot(document.getElementById("root")).render(
+ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <AuthGate>
-      <App />
-    </AuthGate>
+    <App />
   </React.StrictMode>
 );
