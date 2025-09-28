@@ -1,5 +1,4 @@
 import React, { useMemo, useState, useEffect } from "react";
-import { supabase } from "./lib/supabase";
 
 import { useClients } from "./hooks/useClients";
 import { useProjects } from "./hooks/useProjects";
@@ -11,24 +10,30 @@ import { useAttendance } from "./hooks/useAttendance";
 /* ---------- helpers / ui ---------- */
 const clsInp = "w-full border rounded-xl px-3 py-2";
 const uid = (p) => p + Math.random().toString(36).slice(2, 8);
-const ENTRY_KEY = "cec:entry-ok"; // ключ локального доступу (код-логін)
+const ENTRY_KEY = "cec:entry-ok"; // локальний прапорець входу за кодом
 
 /* ---------- root component ---------- */
 export default function App() {
   /* код-логін */
   const requiredCode = (import.meta.env.VITE_ENTRY_CODE || "").trim() || "123456";
+  const forceGate = (import.meta.env.VITE_FORCE_CODE || "") === "1";
   const [hasAccess, setHasAccess] = useState(
     () => localStorage.getItem(ENTRY_KEY) === "1"
   );
   const [code, setCode] = useState("");
   const [codeError, setCodeError] = useState("");
 
-  // підтримка виходу параметром ?logout
+  // підтримка форс-виходу через ?logout=1
   useEffect(() => {
     const usp = new URLSearchParams(location.search);
     if (usp.has("logout")) {
-      localStorage.removeItem(ENTRY_KEY);
-      window.location.replace(window.location.pathname);
+      try {
+        localStorage.removeItem(ENTRY_KEY);
+        localStorage.removeItem("cec_entry_ok"); // старі ключі, якщо були
+        localStorage.removeItem("entry_ok");
+      } finally {
+        window.location.replace(window.location.pathname);
+      }
     }
   }, []);
 
@@ -38,7 +43,6 @@ export default function App() {
       localStorage.setItem(ENTRY_KEY, "1");
       setHasAccess(true);
       setCodeError("");
-      // приберемо параметри, якщо були
       window.history.replaceState({}, "", window.location.pathname);
     } else {
       setCodeError("Невірний код. Перевірте і спробуйте ще раз.");
@@ -48,27 +52,28 @@ export default function App() {
   function handleLogout() {
     try {
       localStorage.removeItem(ENTRY_KEY);
+      localStorage.removeItem("cec_entry_ok");
+      localStorage.removeItem("entry_ok");
+    } finally {
       window.location.replace(window.location.pathname);
-    } catch {
-      window.location.reload();
     }
   }
 
   /* дані */
-  const { rows: clientsRaw = [], upsert: saveClient, remove: delClient } = useClients();
-  const { rows: projectsRaw = [], upsert: saveProject, remove: delProject } = useProjects();
-  const { rows: peopleRaw = [], upsert: savePerson, remove: delPerson } = usePeople();
-  const { rows: vacanciesRaw = [], upsert: saveVacancy, remove: delVacancy } = useVacancies();
-  const { rows: assignmentsRaw = [], upsert: saveAssign, remove: delAssign } = useAssignments();
-  const { rows: attendanceRaw = [], upsert: saveAttend, remove: delAttend } = useAttendance();
+  const { rows: clientsRaw = [],     upsert: saveClient,   remove: delClient }     = useClients();
+  const { rows: projectsRaw = [],    upsert: saveProject,  remove: delProject }    = useProjects();
+  const { rows: peopleRaw = [],      upsert: savePerson,   remove: delPerson }     = usePeople();
+  const { rows: vacanciesRaw = [],   upsert: saveVacancy,  remove: delVacancy }    = useVacancies();
+  const { rows: assignmentsRaw = [], upsert: saveAssign,   remove: delAssign }     = useAssignments();
+  const { rows: attendanceRaw = [],  upsert: saveAttend,   remove: delAttend }     = useAttendance();
 
-  // на всяк випадок робимо захист від null/undefined
-  const clients = clientsRaw || [];
-  const projects = projectsRaw || [];
-  const people = peopleRaw || [];
-  const vacancies = vacanciesRaw || [];
+  // на всяк випадок захист від null/undefined
+  const clients     = clientsRaw     || [];
+  const projects    = projectsRaw    || [];
+  const people      = peopleRaw      || [];
+  const vacancies   = vacanciesRaw   || [];
   const assignments = assignmentsRaw || [];
-  const attendance = attendanceRaw || [];
+  const attendance  = attendanceRaw  || [];
 
   const [tab, setTab] = useState("dashboard");
 
@@ -95,7 +100,7 @@ export default function App() {
     [projects]
   );
 
-  // Порахувати “дні роботи” за attendance (рахуємо все що містить "яв"/"present" або порожньо)
+  // Порахувати “дні роботи” за attendance (рахуємо все що містить "яв"/"present" або порожній статус)
   const workedDays = useMemo(() => {
     const m = {};
     attendance.forEach((a) => {
@@ -107,8 +112,8 @@ export default function App() {
     return m;
   }, [attendance]);
 
-  /* якщо нема доступу — показуємо модальне вікно з полем коду */
-  if (!hasAccess) {
+  /* якщо немає доступу (або увімкнено forceGate) — показуємо модалку з кодом */
+  if (!hasAccess || forceGate) {
     return (
       <div className="min-h-screen bg-slate-100">
         <header className="px-4 py-3 bg-white border-b">
@@ -121,7 +126,7 @@ export default function App() {
           <div className="relative z-10 bg-white border rounded-2xl shadow p-4 w-full max-w-md">
             <h2 className="text-lg font-semibold mb-2">Увійти</h2>
             <p className="text-sm text-slate-600 mb-4">
-              Введіть код доступу (у вас: <b>{requiredCode}</b>):
+              Введіть код доступу (зараз встановлено: <b>{requiredCode}</b>).
             </p>
             <form onSubmit={handleCheckCode} className="space-y-3">
               <input
@@ -138,6 +143,9 @@ export default function App() {
                 </button>
               </div>
             </form>
+            <div className="mt-3 text-xs text-slate-500">
+              Підказка: можна вийти будь-коли, додавши до адреси <code>?logout=1</code>.
+            </div>
           </div>
         </div>
       </div>
@@ -180,7 +188,7 @@ export default function App() {
           <Card title="Дашборд">
             <p className="text-sm text-slate-600 mb-4">
               Ви увійшли за кодом. Нижче працює весь інтерфейс (ліди, люди, клієнти,
-              проєкти, вакансії, призначення, відвідуваність тощо).
+              проєкти, вакансії, призначення, відвідуваність).
             </p>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <KPI label="Усього людей" value={people.length} />
@@ -587,7 +595,7 @@ function ClientModal({ initial, onSave }) {
   );
 }
 
-function ProjectModal({ initial, onSave, clients }) {
+function ProjectModal({ initial, onSave, clients = [] }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(
     initial || {
@@ -794,7 +802,7 @@ function PersonModal({ initial, onSave, clients = [] }) {
   );
 }
 
-function VacancyModal({ initial, onSave, clients }) {
+function VacancyModal({ initial, onSave, clients = [] }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(
     initial || {
@@ -878,7 +886,7 @@ function VacancyModal({ initial, onSave, clients }) {
   );
 }
 
-function AssignmentModal({ initial, onSave, people, clients, projects }) {
+function AssignmentModal({ initial, onSave, people = [], clients = [], projects = [] }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(
     initial || {
@@ -1017,7 +1025,7 @@ function AssignmentModal({ initial, onSave, people, clients, projects }) {
   );
 }
 
-function AttendanceModal({ initial, onSave, people, clients }) {
+function AttendanceModal({ initial, onSave, people = [], clients = [] }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(
     initial || {
