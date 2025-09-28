@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { supabase } from "./lib/supabase";
+
 import { useClients } from "./hooks/useClients";
 import { useProjects } from "./hooks/useProjects";
 import { usePeople } from "./hooks/usePeople";
@@ -7,30 +8,79 @@ import { useVacancies } from "./hooks/useVacancies";
 import { useAssignments } from "./hooks/useAssignments";
 import { useAttendance } from "./hooks/useAttendance";
 
-/* helpers */
-const clsBtn = (s = "") => `px-3 py-2 rounded-xl border ${s}`;
+/* ---------- helpers / ui ---------- */
 const clsInp = "w-full border rounded-xl px-3 py-2";
 const uid = (p) => p + Math.random().toString(36).slice(2, 8);
+const ENTRY_KEY = "cec:entry-ok"; // ключ локального доступу (код-логін)
 
+/* ---------- root component ---------- */
 export default function App() {
+  /* код-логін */
+  const requiredCode = (import.meta.env.VITE_ENTRY_CODE || "").trim() || "123456";
+  const [hasAccess, setHasAccess] = useState(
+    () => localStorage.getItem(ENTRY_KEY) === "1"
+  );
+  const [code, setCode] = useState("");
+  const [codeError, setCodeError] = useState("");
+
+  // підтримка виходу параметром ?logout
+  useEffect(() => {
+    const usp = new URLSearchParams(location.search);
+    if (usp.has("logout")) {
+      localStorage.removeItem(ENTRY_KEY);
+      window.location.replace(window.location.pathname);
+    }
+  }, []);
+
+  function handleCheckCode(e) {
+    e.preventDefault();
+    if (code.trim() === requiredCode) {
+      localStorage.setItem(ENTRY_KEY, "1");
+      setHasAccess(true);
+      setCodeError("");
+      // приберемо параметри, якщо були
+      window.history.replaceState({}, "", window.location.pathname);
+    } else {
+      setCodeError("Невірний код. Перевірте і спробуйте ще раз.");
+    }
+  }
+
+  function handleLogout() {
+    try {
+      localStorage.removeItem(ENTRY_KEY);
+      window.location.replace(window.location.pathname);
+    } catch {
+      window.location.reload();
+    }
+  }
+
+  /* дані */
+  const { rows: clientsRaw = [], upsert: saveClient, remove: delClient } = useClients();
+  const { rows: projectsRaw = [], upsert: saveProject, remove: delProject } = useProjects();
+  const { rows: peopleRaw = [], upsert: savePerson, remove: delPerson } = usePeople();
+  const { rows: vacanciesRaw = [], upsert: saveVacancy, remove: delVacancy } = useVacancies();
+  const { rows: assignmentsRaw = [], upsert: saveAssign, remove: delAssign } = useAssignments();
+  const { rows: attendanceRaw = [], upsert: saveAttend, remove: delAttend } = useAttendance();
+
+  // на всяк випадок робимо захист від null/undefined
+  const clients = clientsRaw || [];
+  const projects = projectsRaw || [];
+  const people = peopleRaw || [];
+  const vacancies = vacanciesRaw || [];
+  const assignments = assignmentsRaw || [];
+  const attendance = attendanceRaw || [];
+
   const [tab, setTab] = useState("dashboard");
 
-  // ВАЖЛИВО: дефолтні [] щоб не падало на .map()
-  const { rows: clients = [],     upsert: saveClient,     remove: delClient } = useClients();
-  const { rows: projects = [],    upsert: saveProject,    remove: delProject } = useProjects();
-  const { rows: people = [],      upsert: savePerson,     remove: delPerson } = usePeople();
-  const { rows: vacancies = [],   upsert: saveVacancy,    remove: delVacancy } = useVacancies();
-  const { rows: assignments = [], upsert: saveAssign,     remove: delAssign } = useAssignments();
-  const { rows: attendance = [],  upsert: saveAttend,     remove: delAttend } = useAttendance();
-
+  /* розрахунки */
   const today = new Date().toISOString().slice(0, 10);
-  const active = assignments.filter(
+  const activeAssignments = assignments.filter(
     (a) =>
-      a.status === "Активний" &&
-      (!a.start || a.start <= today) &&
-      (!a.end || a.end >= today)
+      (a?.status || "") === "Активний" &&
+      (!a?.start || a.start <= today) &&
+      (!a?.end || a.end >= today)
   );
-  const activePersonIds = new Set(active.map((a) => a.person_id));
+  const activePersonIds = new Set(activeAssignments.map((a) => a.person_id));
 
   const clientsById = useMemo(
     () => Object.fromEntries(clients.map((c) => [c.client_id, c])),
@@ -45,11 +95,11 @@ export default function App() {
     [projects]
   );
 
-  // Відпрацьовані дні з attendance (рахуємо "Явка"/"present" як день)
+  // Порахувати “дні роботи” за attendance (рахуємо все що містить "яв"/"present" або порожньо)
   const workedDays = useMemo(() => {
     const m = {};
     attendance.forEach((a) => {
-      const s = (a.status || "").toLowerCase();
+      const s = (a?.status || "").toLowerCase();
       if (s.includes("яв") || s.includes("present") || s === "") {
         m[a.person_id] = (m[a.person_id] || 0) + 1;
       }
@@ -57,6 +107,44 @@ export default function App() {
     return m;
   }, [attendance]);
 
+  /* якщо нема доступу — показуємо модальне вікно з полем коду */
+  if (!hasAccess) {
+    return (
+      <div className="min-h-screen bg-slate-100">
+        <header className="px-4 py-3 bg-white border-b">
+          <Logo />
+        </header>
+
+        {/* модальне вікно коду */}
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/50" />
+          <div className="relative z-10 bg-white border rounded-2xl shadow p-4 w-full max-w-md">
+            <h2 className="text-lg font-semibold mb-2">Увійти</h2>
+            <p className="text-sm text-slate-600 mb-4">
+              Введіть код доступу (у вас: <b>{requiredCode}</b>):
+            </p>
+            <form onSubmit={handleCheckCode} className="space-y-3">
+              <input
+                className={clsInp}
+                placeholder="Ваш код"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                autoFocus
+              />
+              {codeError && <div className="text-sm text-red-600">{codeError}</div>}
+              <div className="flex justify-end">
+                <button type="submit" className="btn btn-primary">
+                  Увійти
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* основний інтерфейс */
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <header className="px-4 py-3 bg-white border-b sticky top-0 flex items-center justify-between">
@@ -74,6 +162,7 @@ export default function App() {
           ].map(([k, l]) => (
             <button
               key={k}
+              type="button"
               onClick={() => setTab(k)}
               className={tab === k ? "btn btn-primary" : "btn"}
             >
@@ -81,7 +170,7 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <button className="btn" onClick={() => supabase.auth.signOut()}>
+        <button type="button" className="btn" onClick={handleLogout}>
           Вийти
         </button>
       </header>
@@ -89,13 +178,17 @@ export default function App() {
       <main className="p-4 max-w-7xl mx-auto space-y-8">
         {tab === "dashboard" && (
           <Card title="Дашборд">
+            <p className="text-sm text-slate-600 mb-4">
+              Ви увійшли за кодом. Нижче працює весь інтерфейс (ліди, люди, клієнти,
+              проєкти, вакансії, призначення, відвідуваність тощо).
+            </p>
             <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <KPI label="Усього людей" value={people.length} />
               <KPI label="Працює зараз" value={activePersonIds.size} />
               <KPI label="Клієнтів" value={clients.length} />
               <KPI
                 label="Вакансій відкрито"
-                value={vacancies.filter((v) => v.status === "Відкрита").length}
+                value={vacancies.filter((v) => (v?.status || "") === "Відкрита").length}
               />
             </div>
           </Card>
@@ -111,19 +204,21 @@ export default function App() {
                 ["ПІБ", (r) => r.name],
                 ["Телефон", (r) => r.phone || "—"],
                 ["Рекрутер", (r) => r.recruiter || "—"],
-                ["Статус", (r) => r.status],
+                ["Статус", (r) => r.status || "—"],
                 ["Цільовий клієнт", (r) => clientsById[r.target_client_id]?.company || "—"],
                 [
                   "Дії",
                   (r) => (
                     <>
                       <PersonModal initial={r} onSave={savePerson} clients={clients} />
-                      <button className="btn ml-2" onClick={() => delPerson(r.person_id)}>🗑</button>
+                      <button className="btn ml-2" onClick={() => delPerson(r.person_id)}>
+                        🗑
+                      </button>
                     </>
                   ),
                 ],
               ]}
-              rows={people.filter((p) => (p.status || "lead") === "lead")}
+              rows={(people || []).filter((p) => (p.status || "lead") === "lead")}
             />
           </Card>
         )}
@@ -152,7 +247,7 @@ export default function App() {
                 ["Телефон", (r) => r.phone || "—"],
                 ["Місто", (r) => r.city || "—"],
                 ["Рекрутер", (r) => r.recruiter || "—"],
-                ["Статус", (r) => r.status],
+                ["Статус", (r) => r.status || "—"],
                 ["Цільовий клієнт", (r) => clientsById[r.target_client_id]?.company || "—"],
                 ["Днів", (r) => workedDays[r.person_id] || 0],
                 [
@@ -160,7 +255,9 @@ export default function App() {
                   (r) => (
                     <>
                       <PersonModal initial={r} onSave={savePerson} clients={clients} />
-                      <button className="btn ml-2" onClick={() => delPerson(r.person_id)}>🗑</button>
+                      <button className="btn ml-2" onClick={() => delPerson(r.person_id)}>
+                        🗑
+                      </button>
                     </>
                   ),
                 ],
@@ -182,7 +279,9 @@ export default function App() {
                   (r) => (
                     <>
                       <ClientModal initial={r} onSave={saveClient} />
-                      <button className="btn ml-2" onClick={() => delClient(r.client_id)}>🗑</button>
+                      <button className="btn ml-2" onClick={() => delClient(r.client_id)}>
+                        🗑
+                      </button>
                     </>
                   ),
                 ],
@@ -207,7 +306,9 @@ export default function App() {
                   (r) => (
                     <>
                       <ProjectModal initial={r} onSave={saveProject} clients={clients} />
-                      <button className="btn ml-2" onClick={() => delProject(r.project_id)}>🗑</button>
+                      <button className="btn ml-2" onClick={() => delProject(r.project_id)}>
+                        🗑
+                      </button>
                     </>
                   ),
                 ],
@@ -227,13 +328,15 @@ export default function App() {
                 ["Компанія", (r) => clientsById[r.client_id]?.company || "—"],
                 ["Позиція", (r) => r.position],
                 ["Ставка", (r) => r.rate],
-                ["Статус", (r) => r.status],
+                ["Статус", (r) => r.status || "—"],
                 [
                   "Дії",
                   (r) => (
                     <>
                       <VacancyModal initial={r} onSave={saveVacancy} clients={clients} />
-                      <button className="btn ml-2" onClick={() => delVacancy(r.vacancy_id)}>🗑</button>
+                      <button className="btn ml-2" onClick={() => delVacancy(r.vacancy_id)}>
+                        🗑
+                      </button>
                     </>
                   ),
                 ],
@@ -265,7 +368,7 @@ export default function App() {
                 ["Ставка", (r) => r.rate || "—"],
                 ["Початок", (r) => r.start || "—"],
                 ["Кінець", (r) => r.end || "—"],
-                ["Статус", (r) => r.status],
+                ["Статус", (r) => r.status || "—"],
                 [
                   "Дії",
                   (r) => (
@@ -277,7 +380,9 @@ export default function App() {
                         clients={clients}
                         projects={projects}
                       />
-                      <button className="btn ml-2" onClick={() => delAssign(r.assignment_id)}>🗑</button>
+                      <button className="btn ml-2" onClick={() => delAssign(r.assignment_id)}>
+                        🗑
+                      </button>
                     </>
                   ),
                 ],
@@ -310,7 +415,9 @@ export default function App() {
                         people={people}
                         clients={clients}
                       />
-                      <button className="btn ml-2" onClick={() => delAttend(r.id)}>🗑</button>
+                      <button className="btn ml-2" onClick={() => delAttend(r.id)}>
+                        🗑
+                      </button>
                     </>
                   ),
                 ],
@@ -324,7 +431,7 @@ export default function App() {
   );
 }
 
-/* ===== UI building blocks ===== */
+/* ---------- UI blocks ---------- */
 function Card({ title, action, children }) {
   return (
     <div className="bg-white border rounded-2xl p-4 shadow-sm">
@@ -336,9 +443,7 @@ function Card({ title, action, children }) {
     </div>
   );
 }
-
-// БЕЗПЕЧНА ТАБЛИЦЯ (навіть якщо rows === undefined)
-function Table({ columns, rows = [], rowClass }) {
+function Table({ columns, rows, rowClass }) {
   const safeRows = Array.isArray(rows) ? rows : [];
   return (
     <div className="overflow-x-auto border rounded-xl">
@@ -374,7 +479,6 @@ function Table({ columns, rows = [], rowClass }) {
     </div>
   );
 }
-
 function KPI({ label, value }) {
   return (
     <div className="bg-white border rounded-2xl p-4 text-center">
@@ -384,14 +488,16 @@ function KPI({ label, value }) {
   );
 }
 
-/* ===== Modals (forms) ===== */
+/* ---------- Modals ---------- */
 function Modal({ title, onClose, children }) {
   return (
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-3">
       <div className="bg-white rounded-2xl border shadow p-4 w-full max-w-xl">
         <div className="flex justify-between items-center mb-3">
           <div className="font-semibold">{title}</div>
-          <button className="btn" onClick={onClose}>✖</button>
+          <button type="button" className="btn" onClick={onClose}>
+            ✖
+          </button>
         </div>
         {children}
       </div>
@@ -402,7 +508,9 @@ function Modal({ title, onClose, children }) {
 function ClientModal({ initial, onSave }) {
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState("");
-  const [f, setF] = useState(initial || { client_id: "", company: "", location: "", note: "" });
+  const [f, setF] = useState(
+    initial || { client_id: "", company: "", location: "", note: "" }
+  );
 
   function save() {
     const payload = {
@@ -425,6 +533,7 @@ function ClientModal({ initial, onSave }) {
   return (
     <>
       <button
+        type="button"
         className="btn"
         onClick={() => {
           setF(initial || { client_id: "", company: "", location: "", note: "" });
@@ -436,16 +545,41 @@ function ClientModal({ initial, onSave }) {
       </button>
 
       {open && (
-        <Modal title={initial ? "Клієнт / Завод" : "Новий клієнт / завод"} onClose={() => setOpen(false)}>
+        <Modal
+          title={initial ? "Клієнт / Завод" : "Новий клієнт / завод"}
+          onClose={() => setOpen(false)}
+        >
           <div className="grid gap-2">
-            <input className={clsInp} placeholder="ID (необов'язково)" value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })} />
-            <input className={clsInp} placeholder="Компанія / Завод *" value={f.company} onChange={(e) => setF({ ...f, company: e.target.value })} />
-            <input className={clsInp} placeholder="Локація (місто)" value={f.location} onChange={(e) => setF({ ...f, location: e.target.value })} />
-            <textarea className={clsInp} placeholder="Нотатка" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+            <input
+              className={clsInp}
+              placeholder="ID (необов'язково)"
+              value={f.client_id}
+              onChange={(e) => setF({ ...f, client_id: e.target.value })}
+            />
+            <input
+              className={clsInp}
+              placeholder="Компанія / Завод *"
+              value={f.company}
+              onChange={(e) => setF({ ...f, company: e.target.value })}
+            />
+            <input
+              className={clsInp}
+              placeholder="Локація (місто)"
+              value={f.location}
+              onChange={(e) => setF({ ...f, location: e.target.value })}
+            />
+            <textarea
+              className={clsInp}
+              placeholder="Нотатка"
+              value={f.note}
+              onChange={(e) => setF({ ...f, note: e.target.value })}
+            />
             {err && <div className="text-red-600 text-sm">{err}</div>}
           </div>
           <div className="mt-3 flex justify-end">
-            <button className="btn btn-primary" onClick={save}>Зберегти</button>
+            <button type="button" className="btn btn-primary" onClick={save}>
+              Зберегти
+            </button>
           </div>
         </Modal>
       )}
@@ -453,15 +587,30 @@ function ClientModal({ initial, onSave }) {
   );
 }
 
-function ProjectModal({ initial, onSave, clients = [] }) {
+function ProjectModal({ initial, onSave, clients }) {
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState(initial || { project_id: "", name: "", client_id: clients[0]?.client_id || "", note: "" });
+  const [f, setF] = useState(
+    initial || {
+      project_id: "",
+      name: "",
+      client_id: clients[0]?.client_id || "",
+      note: "",
+    }
+  );
   return (
     <>
       <button
+        type="button"
         className="btn"
         onClick={() => {
-          setF(initial || { project_id: "", name: "", client_id: clients[0]?.client_id || "", note: "" });
+          setF(
+            initial || {
+              project_id: "",
+              name: "",
+              client_id: clients[0]?.client_id || "",
+              note: "",
+            }
+          );
           setOpen(true);
         }}
       >
@@ -469,17 +618,32 @@ function ProjectModal({ initial, onSave, clients = [] }) {
       </button>
       {open && (
         <Modal title={initial ? "Проєкт" : "Новий проєкт"} onClose={() => setOpen(false)}>
-          <input className={clsInp + " mb-2"} placeholder="Назва" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-          <select className={clsInp + " mb-2"} value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
+          <input
+            className={clsInp + " mb-2"}
+            placeholder="Назва"
+            value={f.name}
+            onChange={(e) => setF({ ...f, name: e.target.value })}
+          />
+          <select
+            className={clsInp + " mb-2"}
+            value={f.client_id}
+            onChange={(e) => setF({ ...f, client_id: e.target.value })}
+          >
             {clients.map((c) => (
               <option key={c.client_id} value={c.client_id}>
                 {c.company}
               </option>
             ))}
           </select>
-          <textarea className={clsInp} placeholder="Нотатка" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
+          <textarea
+            className={clsInp}
+            placeholder="Нотатка"
+            value={f.note}
+            onChange={(e) => setF({ ...f, note: e.target.value })}
+          />
           <div className="mt-3 flex justify-end">
             <button
+              type="button"
               className="btn btn-primary"
               onClick={() => {
                 if (!f.project_id) f.project_id = uid("PR");
@@ -516,6 +680,7 @@ function PersonModal({ initial, onSave, clients = [] }) {
   return (
     <>
       <button
+        type="button"
         className="btn"
         onClick={() => {
           setF(
@@ -541,14 +706,54 @@ function PersonModal({ initial, onSave, clients = [] }) {
       {open && (
         <Modal title={initial ? "Людина" : "Нова людина"} onClose={() => setOpen(false)}>
           <div className="grid sm:grid-cols-2 gap-2">
-            <input className={clsInp} placeholder="ID (P1…)" value={f.person_id} onChange={(e) => setF({ ...f, person_id: e.target.value })} />
-            <input className={clsInp} placeholder="ПІБ" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-            <input className={clsInp} placeholder="Телефон" value={f.phone || ""} onChange={(e) => setF({ ...f, phone: e.target.value })} />
-            <input className={clsInp} placeholder="Місто" value={f.city || ""} onChange={(e) => setF({ ...f, city: e.target.value })} />
-            <input className={clsInp} placeholder="Громадянство" value={f.citizenship || ""} onChange={(e) => setF({ ...f, citizenship: e.target.value })} />
-            <input className={clsInp} placeholder="Документ" value={f.doc || ""} onChange={(e) => setF({ ...f, doc: e.target.value })} />
-            <input className={clsInp} placeholder="Рекрутер" value={f.recruiter || ""} onChange={(e) => setF({ ...f, recruiter: e.target.value })} />
-            <input type="date" className={clsInp} value={f.birth_date || ""} onChange={(e) => setF({ ...f, birth_date: e.target.value })} />
+            <input
+              className={clsInp}
+              placeholder="ID (P1…)"
+              value={f.person_id}
+              onChange={(e) => setF({ ...f, person_id: e.target.value })}
+            />
+            <input
+              className={clsInp}
+              placeholder="ПІБ"
+              value={f.name}
+              onChange={(e) => setF({ ...f, name: e.target.value })}
+            />
+            <input
+              className={clsInp}
+              placeholder="Телефон"
+              value={f.phone || ""}
+              onChange={(e) => setF({ ...f, phone: e.target.value })}
+            />
+            <input
+              className={clsInp}
+              placeholder="Місто"
+              value={f.city || ""}
+              onChange={(e) => setF({ ...f, city: e.target.value })}
+            />
+            <input
+              className={clsInp}
+              placeholder="Громадянство"
+              value={f.citizenship || ""}
+              onChange={(e) => setF({ ...f, citizenship: e.target.value })}
+            />
+            <input
+              className={clsInp}
+              placeholder="Документ"
+              value={f.doc || ""}
+              onChange={(e) => setF({ ...f, doc: e.target.value })}
+            />
+            <input
+              className={clsInp}
+              placeholder="Рекрутер"
+              value={f.recruiter || ""}
+              onChange={(e) => setF({ ...f, recruiter: e.target.value })}
+            />
+            <input
+              type="date"
+              className={clsInp}
+              value={f.birth_date || ""}
+              onChange={(e) => setF({ ...f, birth_date: e.target.value })}
+            />
 
             <select
               className={clsInp + " col-span-2"}
@@ -571,6 +776,7 @@ function PersonModal({ initial, onSave, clients = [] }) {
 
           <div className="mt-3 flex justify-end">
             <button
+              type="button"
               className="btn btn-primary"
               onClick={() => {
                 const payload = { ...f, target_client_id: f.target_client_id || null };
@@ -588,17 +794,32 @@ function PersonModal({ initial, onSave, clients = [] }) {
   );
 }
 
-function VacancyModal({ initial, onSave, clients = [] }) {
+function VacancyModal({ initial, onSave, clients }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(
-    initial || { vacancy_id: "", client_id: clients[0]?.client_id || "", position: "", rate: 0, status: "Відкрита" }
+    initial || {
+      vacancy_id: "",
+      client_id: clients[0]?.client_id || "",
+      position: "",
+      rate: 0,
+      status: "Відкрита",
+    }
   );
   return (
     <>
       <button
+        type="button"
         className="btn"
         onClick={() => {
-          setF(initial || { vacancy_id: "", client_id: clients[0]?.client_id || "", position: "", rate: 0, status: "Відкрита" });
+          setF(
+            initial || {
+              vacancy_id: "",
+              client_id: clients[0]?.client_id || "",
+              position: "",
+              rate: 0,
+              status: "Відкрита",
+            }
+          );
           setOpen(true);
         }}
       >
@@ -606,21 +827,41 @@ function VacancyModal({ initial, onSave, clients = [] }) {
       </button>
       {open && (
         <Modal title={initial ? "Вакансія" : "Нова вакансія"} onClose={() => setOpen(false)}>
-          <select className={clsInp + " mb-2"} value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
+          <select
+            className={clsInp + " mb-2"}
+            value={f.client_id}
+            onChange={(e) => setF({ ...f, client_id: e.target.value })}
+          >
             {clients.map((c) => (
               <option key={c.client_id} value={c.client_id}>
                 {c.company}
               </option>
             ))}
           </select>
-          <input className={clsInp + " mb-2"} placeholder="Позиція" value={f.position} onChange={(e) => setF({ ...f, position: e.target.value })} />
-          <input type="number" className={clsInp + " mb-2"} placeholder="Ставка" value={f.rate} onChange={(e) => setF({ ...f, rate: Number(e.target.value) })} />
-          <select className={clsInp} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+          <input
+            className={clsInp + " mb-2"}
+            placeholder="Позиція"
+            value={f.position}
+            onChange={(e) => setF({ ...f, position: e.target.value })}
+          />
+          <input
+            type="number"
+            className={clsInp + " mb-2"}
+            placeholder="Ставка"
+            value={f.rate}
+            onChange={(e) => setF({ ...f, rate: Number(e.target.value) })}
+          />
+          <select
+            className={clsInp}
+            value={f.status}
+            onChange={(e) => setF({ ...f, status: e.target.value })}
+          >
             <option>Відкрита</option>
             <option>Закрита</option>
           </select>
           <div className="mt-3 flex justify-end">
             <button
+              type="button"
               className="btn btn-primary"
               onClick={() => {
                 if (!f.vacancy_id) f.vacancy_id = uid("V");
@@ -637,7 +878,7 @@ function VacancyModal({ initial, onSave, clients = [] }) {
   );
 }
 
-function AssignmentModal({ initial, onSave, people = [], clients = [], projects = [] }) {
+function AssignmentModal({ initial, onSave, people, clients, projects }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(
     initial || {
@@ -656,6 +897,7 @@ function AssignmentModal({ initial, onSave, people = [], clients = [], projects 
   return (
     <>
       <button
+        type="button"
         className="btn"
         onClick={() => {
           setF(
@@ -679,21 +921,33 @@ function AssignmentModal({ initial, onSave, people = [], clients = [], projects 
       </button>
       {open && (
         <Modal title={initial ? "Призначення" : "Нове призначення"} onClose={() => setOpen(false)}>
-          <select className={clsInp + " mb-2"} value={f.person_id} onChange={(e) => setF({ ...f, person_id: e.target.value })}>
+          <select
+            className={clsInp + " mb-2"}
+            value={f.person_id}
+            onChange={(e) => setF({ ...f, person_id: e.target.value })}
+          >
             {people.map((p) => (
               <option key={p.person_id} value={p.person_id}>
                 {p.name}
               </option>
             ))}
           </select>
-          <select className={clsInp + " mb-2"} value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
+          <select
+            className={clsInp + " mb-2"}
+            value={f.client_id}
+            onChange={(e) => setF({ ...f, client_id: e.target.value })}
+          >
             {clients.map((c) => (
               <option key={c.client_id} value={c.client_id}>
                 {c.company}
               </option>
             ))}
           </select>
-          <select className={clsInp + " mb-2"} value={f.project_id} onChange={(e) => setF({ ...f, project_id: e.target.value })}>
+          <select
+            className={clsInp + " mb-2"}
+            value={f.project_id}
+            onChange={(e) => setF({ ...f, project_id: e.target.value })}
+          >
             <option value="">—</option>
             {projects
               .filter((p) => p.client_id === f.client_id)
@@ -703,19 +957,50 @@ function AssignmentModal({ initial, onSave, people = [], clients = [], projects 
                 </option>
               ))}
           </select>
-          <input className={clsInp + " mb-2"} placeholder="Позиція" value={f.position || ""} onChange={(e) => setF({ ...f, position: e.target.value })} />
-          <input className={clsInp + " mb-2"} placeholder="Договір" value={f.contract_type || ""} onChange={(e) => setF({ ...f, contract_type: e.target.value })} />
-          <input type="number" className={clsInp + " mb-2"} placeholder="Ставка" value={f.rate || 0} onChange={(e) => setF({ ...f, rate: Number(e.target.value) })} />
+          <input
+            className={clsInp + " mb-2"}
+            placeholder="Позиція"
+            value={f.position || ""}
+            onChange={(e) => setF({ ...f, position: e.target.value })}
+          />
+          <input
+            className={clsInp + " mb-2"}
+            placeholder="Договір"
+            value={f.contract_type || ""}
+            onChange={(e) => setF({ ...f, contract_type: e.target.value })}
+          />
+          <input
+            type="number"
+            className={clsInp + " mb-2"}
+            placeholder="Ставка"
+            value={f.rate || 0}
+            onChange={(e) => setF({ ...f, rate: Number(e.target.value) })}
+          />
           <div className="grid grid-cols-2 gap-2">
-            <input type="date" className={clsInp} value={f.start || ""} onChange={(e) => setF({ ...f, start: e.target.value })} />
-            <input type="date" className={clsInp} value={f.end || ""} onChange={(e) => setF({ ...f, end: e.target.value })} />
+            <input
+              type="date"
+              className={clsInp}
+              value={f.start || ""}
+              onChange={(e) => setF({ ...f, start: e.target.value })}
+            />
+            <input
+              type="date"
+              className={clsInp}
+              value={f.end || ""}
+              onChange={(e) => setF({ ...f, end: e.target.value })}
+            />
           </div>
-          <select className={clsInp + " mt-2"} value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
+          <select
+            className={clsInp + " mt-2"}
+            value={f.status}
+            onChange={(e) => setF({ ...f, status: e.target.value })}
+          >
             <option>Активний</option>
             <option>Завершено</option>
           </select>
           <div className="mt-3 flex justify-end">
             <button
+              type="button"
               className="btn btn-primary"
               onClick={() => {
                 if (!f.assignment_id) f.assignment_id = uid("A");
@@ -732,7 +1017,7 @@ function AssignmentModal({ initial, onSave, people = [], clients = [], projects 
   );
 }
 
-function AttendanceModal({ initial, onSave, people = [], clients = [] }) {
+function AttendanceModal({ initial, onSave, people, clients }) {
   const [open, setOpen] = useState(false);
   const [f, setF] = useState(
     initial || {
@@ -748,6 +1033,7 @@ function AttendanceModal({ initial, onSave, people = [], clients = [] }) {
   return (
     <>
       <button
+        type="button"
         className="btn"
         onClick={() => {
           setF(
@@ -767,27 +1053,60 @@ function AttendanceModal({ initial, onSave, people = [], clients = [] }) {
         {initial ? "✏️ Ред." : "➕ Додати"}
       </button>
       {open && (
-        <Modal title={initial ? "Відвідуваність" : "Запис відвідуваності"} onClose={() => setOpen(false)}>
-          <input type="date" className={clsInp + " mb-2"} value={f.date} onChange={(e) => setF({ ...f, date: e.target.value })} />
-          <select className={clsInp + " mb-2"} value={f.person_id} onChange={(e) => setF({ ...f, person_id: e.target.value })}>
+        <Modal
+          title={initial ? "Відвідуваність" : "Запис відвідуваності"}
+          onClose={() => setOpen(false)}
+        >
+          <input
+            type="date"
+            className={clsInp + " mb-2"}
+            value={f.date}
+            onChange={(e) => setF({ ...f, date: e.target.value })}
+          />
+          <select
+            className={clsInp + " mb-2"}
+            value={f.person_id}
+            onChange={(e) => setF({ ...f, person_id: e.target.value })}
+          >
             {people.map((p) => (
               <option key={p.person_id} value={p.person_id}>
                 {p.name}
               </option>
             ))}
           </select>
-          <select className={clsInp + " mb-2"} value={f.client_id} onChange={(e) => setF({ ...f, client_id: e.target.value })}>
+          <select
+            className={clsInp + " mb-2"}
+            value={f.client_id}
+            onChange={(e) => setF({ ...f, client_id: e.target.value })}
+          >
             {clients.map((c) => (
               <option key={c.client_id} value={c.client_id}>
                 {c.company}
               </option>
             ))}
           </select>
-          <input className={clsInp + " mb-2"} placeholder="Зміна (День/Ніч)" value={f.shift} onChange={(e) => setF({ ...f, shift: e.target.value })} />
-          <input type="number" className={clsInp + " mb-2"} placeholder="Години" value={f.hours} onChange={(e) => setF({ ...f, hours: Number(e.target.value) })} />
-          <input className={clsInp} placeholder="Статус" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })} />
+          <input
+            className={clsInp + " mb-2"}
+            placeholder="Зміна (День/Ніч)"
+            value={f.shift}
+            onChange={(e) => setF({ ...f, shift: e.target.value })}
+          />
+          <input
+            type="number"
+            className={clsInp + " mb-2"}
+            placeholder="Години"
+            value={f.hours}
+            onChange={(e) => setF({ ...f, hours: Number(e.target.value) })}
+          />
+          <input
+            className={clsInp}
+            placeholder="Статус"
+            value={f.status}
+            onChange={(e) => setF({ ...f, status: e.target.value })}
+          />
           <div className="mt-3 flex justify-end">
             <button
+              type="button"
               className="btn btn-primary"
               onClick={() => {
                 if (!f.id) f.id = uid("T");
@@ -804,11 +1123,11 @@ function AttendanceModal({ initial, onSave, people = [], clients = [] }) {
   );
 }
 
-/* ===== Logo ===== */
+/* ---------- Logo ---------- */
 function Logo() {
   return (
     <div className="flex items-center gap-2">
-      <svg viewBox="0 0 64 64" width="28" height="28">
+      <svg viewBox="0 0 64 64" width="28" height="28" aria-hidden="true">
         <defs>
           <linearGradient id="flagGrad" x1="0" x2="1" y1="0" y2="1">
             <stop offset="0%" stopColor="#d7141a" />
